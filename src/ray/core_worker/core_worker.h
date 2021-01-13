@@ -810,8 +810,9 @@ class CoreWorker : public rpc::CoreWorkerServiceHandler {
                       rpc::SendReplyCallback send_reply_callback) override;
 
   /// Implements gRPC server handler.
-  void HandleStealTasks(const rpc::StealTasksRequest &request, rpc::StealTasksReply *reply,
-                       rpc::SendReplyCallback send_reply_callback) override;
+  void HandleStealTasks(const rpc::StealTasksRequest &request,
+                        rpc::StealTasksReply *reply,
+                        rpc::SendReplyCallback send_reply_callback) override;
 
   /// Implements gRPC server handler.
   void HandleDirectActorCallArgWaitComplete(

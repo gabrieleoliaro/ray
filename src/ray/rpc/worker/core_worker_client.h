@@ -120,7 +120,7 @@ class CoreWorkerClientInterface {
                               const ClientCallback<PushTaskReply> &callback) {}
 
   virtual void StealTasks(std::unique_ptr<StealTasksRequest> request,
-                         const ClientCallback<StealTasksReply> &callback) {}
+                          const ClientCallback<StealTasksReply> &callback) {}
 
   /// Notify a wait has completed for direct actor call arguments.
   ///
@@ -284,7 +284,7 @@ class CoreWorkerClient : public std::enable_shared_from_this<CoreWorkerClient>,
   }
 
   void StealTasks(std::unique_ptr<StealTasksRequest> request,
-                 const ClientCallback<StealTasksReply> &callback) override {
+                  const ClientCallback<StealTasksReply> &callback) override {
     INVOKE_RPC_CALL(CoreWorkerService, StealTasks, *request, callback, grpc_client_);
   }
 

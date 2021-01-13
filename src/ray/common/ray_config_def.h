@@ -297,7 +297,6 @@ RAY_CONFIG(uint32_t, max_tasks_in_flight_per_worker, 1)
 /// owner
 RAY_CONFIG(bool, work_stealing, false)
 
-
 /// Interval to restart dashboard agent after the process exit.
 RAY_CONFIG(uint32_t, agent_restart_interval_ms, 1000)
 

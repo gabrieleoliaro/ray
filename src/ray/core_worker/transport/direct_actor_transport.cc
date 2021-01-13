@@ -466,7 +466,7 @@ void CoreWorkerDirectTaskReceiver::HandleTask(
     send_reply_callback(Status::Invalid("client cancelled stale rpc"), nullptr, nullptr);
   };
 
-  auto steal_callback = [this, task_spec, reply, send_reply_callback] () {
+  auto steal_callback = [this, task_spec, reply, send_reply_callback]() {
     RAY_LOG(DEBUG) << "Task " << task_spec.TaskId() << " was stolen from "
                    << worker_context_.GetWorkerID()
                    << "'s non_actor_task_queue_! Setting reply->set_task_stolen(true)!";
@@ -491,12 +491,13 @@ void CoreWorkerDirectTaskReceiver::HandleTask(
     // TODO(swang): Remove this with legacy raylet code.
     dependencies.pop_back();
     it->second->Add(request.sequence_number(), request.client_processed_up_to(),
-                    accept_callback, reject_callback, nullptr, task_spec.TaskId(), dependencies);
+                    accept_callback, reject_callback, nullptr, task_spec.TaskId(),
+                    dependencies);
   } else {
     // Add the normal task's callbacks to the non-actor scheduling queue.
-    normal_scheduling_queue_->Add(request.sequence_number(),
-                                  request.client_processed_up_to(), accept_callback,
-                                  reject_callback, steal_callback, task_spec.TaskId(), dependencies);
+    normal_scheduling_queue_->Add(
+        request.sequence_number(), request.client_processed_up_to(), accept_callback,
+        reject_callback, steal_callback, task_spec.TaskId(), dependencies);
   }
 }
 
@@ -519,7 +520,6 @@ bool CoreWorkerDirectTaskReceiver::CancelQueuedNormalTask(TaskID task_id) {
 void CoreWorkerDirectTaskReceiver::HandleStealTasks(
     const rpc::StealTasksRequest &request, rpc::StealTasksReply *reply,
     rpc::SendReplyCallback send_reply_callback) {
-
   size_t half = normal_scheduling_queue_->Size() / 2;
 
   if (half == 0) {

@@ -28,7 +28,7 @@ namespace rpc {
 /// NOTE: See src/ray/core_worker/core_worker.h on how to add a new grpc handler.
 #define RAY_CORE_WORKER_RPC_HANDLERS                                     \
   RPC_SERVICE_HANDLER(CoreWorkerService, PushTask)                       \
-  RPC_SERVICE_HANDLER(CoreWorkerService, StealTasks)                       \
+  RPC_SERVICE_HANDLER(CoreWorkerService, StealTasks)                     \
   RPC_SERVICE_HANDLER(CoreWorkerService, DirectActorCallArgWaitComplete) \
   RPC_SERVICE_HANDLER(CoreWorkerService, GetObjectStatus)                \
   RPC_SERVICE_HANDLER(CoreWorkerService, WaitForActorOutOfScope)         \
