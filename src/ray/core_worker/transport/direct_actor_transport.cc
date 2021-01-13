@@ -466,14 +466,14 @@ void CoreWorkerDirectTaskReceiver::HandleTask(
     send_reply_callback(Status::Invalid("client cancelled stale rpc"), nullptr, nullptr);
   };
 
-  auto steal_callback = [reply,send_reply_callback] () {
+  auto steal_callback = [this, task_spec, reply, send_reply_callback] () {
     RAY_LOG(DEBUG) << "Task " << task_spec.TaskId() << " was stolen from "
                    << worker_context_.GetWorkerID()
                    << "'s non_actor_task_queue_! Setting reply->set_task_stolen(true)!";
     // task stolen. respond accordingly
     reply->set_task_stolen(true);
     send_reply_callback(Status::OK(), nullptr, nullptr);
-  }
+  };
 
   auto dependencies = task_spec.GetDependencies();
 
@@ -491,12 +491,12 @@ void CoreWorkerDirectTaskReceiver::HandleTask(
     // TODO(swang): Remove this with legacy raylet code.
     dependencies.pop_back();
     it->second->Add(request.sequence_number(), request.client_processed_up_to(),
-                    accept_callback, reject_callback, task_spec.TaskId(), dependencies);
+                    accept_callback, reject_callback, nullptr, task_spec.TaskId(), dependencies);
   } else {
     // Add the normal task's callbacks to the non-actor scheduling queue.
     normal_scheduling_queue_->Add(request.sequence_number(),
                                   request.client_processed_up_to(), accept_callback,
-                                  reject_callback, task_spec.TaskId(), dependencies);
+                                  reject_callback, steal_callback, task_spec.TaskId(), dependencies);
   }
 }
 
@@ -514,6 +514,28 @@ bool CoreWorkerDirectTaskReceiver::CancelQueuedNormalTask(TaskID task_id) {
   // Look up the task to be canceled in the queue of normal tasks. If it is found and
   // removed successfully, return true.
   return normal_scheduling_queue_->CancelTaskIfFound(task_id);
+}
+
+void CoreWorkerDirectTaskReceiver::HandleStealTasks(
+    const rpc::StealTasksRequest &request, rpc::StealTasksReply *reply,
+    rpc::SendReplyCallback send_reply_callback) {
+
+  size_t half = normal_scheduling_queue_->Size() / 2;
+
+  if (half == 0) {
+    RAY_LOG(DEBUG) << "We don't have enough tasks to steal, so we return early!";
+    reply->set_number_of_tasks_stolen(0);
+    send_reply_callback(Status::OK(), nullptr, nullptr);
+    return;
+  }
+
+  size_t n_tasks_stolen = normal_scheduling_queue_->Steal(half, reply);
+
+  RAY_LOG(DEBUG) << "Setting the total number of tasks stolen to " << n_tasks_stolen;
+  reply->set_number_of_tasks_stolen(n_tasks_stolen);
+
+  // send reply back
+  send_reply_callback(Status::OK(), nullptr, nullptr);
 }
 
 }  // namespace ray
