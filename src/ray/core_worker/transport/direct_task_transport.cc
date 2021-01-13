@@ -272,7 +272,6 @@ void CoreWorkerDirectTaskSubmitter::StealTasksIfNeeded(
   }
   rpc::WorkerAddress victim_addr = rpc::WorkerAddress(victim_raw_addr);
 
-
   // Record the new StealTasks request in the victim's LeaseEntry to facilitate the
   // estimate of how many tasks are stealable
   RAY_CHECK(worker_to_lease_entry_.find(victim_addr) != worker_to_lease_entry_.end());
@@ -283,12 +282,13 @@ void CoreWorkerDirectTaskSubmitter::StealTasksIfNeeded(
   // can go ahead with the RPC
   RAY_LOG(DEBUG) << "Calling Steal Work RPC!";
   auto request = std::unique_ptr<rpc::StealTasksRequest>(new rpc::StealTasksRequest);
+  request->mutable_thief_addr()->CopyFrom(thief_addr.ToProto());
   auto &victim_client = *client_cache_->GetOrConnect(victim_addr.ToProto());
   auto victim_wid = victim_addr.worker_id;
 
   RAY_UNUSED(victim_client.StealTasks(
-      std::move(request),
-      [this, scheduling_key, victim_wid, victim_addr, thief_addr, was_error](Status status, const rpc::StealTasksReply &reply) {
+      std::move(request), [this, scheduling_key, victim_wid, victim_addr, thief_addr,
+                           was_error](Status status, const rpc::StealTasksReply &reply) {
         absl::MutexLock lock(&mu_);
 
         // Obtain the thief's lease entry (after ensuring that it still exists)
@@ -363,8 +363,7 @@ void CoreWorkerDirectTaskSubmitter::OnWorkerIdle(
       RAY_LOG(DEBUG) << "Number of tasks in flight == 0, calling StealTasksIfNeeded!";
       StealTasksIfNeeded(addr, was_error, scheduling_key, assigned_resources);
     }
-  }
-  else {
+  } else {
     auto &client = *client_cache_->GetOrConnect(addr.ToProto());
 
     while (!current_queue.empty() &&
@@ -561,56 +560,70 @@ void CoreWorkerDirectTaskSubmitter::PushNormalTask(
   request->mutable_task_spec()->CopyFrom(task_spec.GetMessage());
   request->mutable_resource_mapping()->CopyFrom(assigned_resources);
   request->set_intended_worker_id(addr.worker_id.Binary());
-  client.PushNormalTask(std::move(request), [this, task_id, is_actor, is_actor_creation,
-                                             scheduling_key, addr, assigned_resources](
-                                                Status status,
-                                                const rpc::PushTaskReply &reply) {
-    {
-      absl::MutexLock lock(&mu_);
-      executing_tasks_.erase(task_id);
+  client.PushNormalTask(
+      std::move(request),
+      [this, task_spec, task_id, is_actor, is_actor_creation, scheduling_key, addr,
+       assigned_resources](Status status, const rpc::PushTaskReply &reply) {
+        {
+          absl::MutexLock lock(&mu_);
+          executing_tasks_.erase(task_id);
 
-      // Decrement the number of tasks in flight to the worker
-      auto &lease_entry = worker_to_lease_entry_[addr];
-      RAY_CHECK(lease_entry.tasks_in_flight > 0);
-      lease_entry.tasks_in_flight--;
+          // Decrement the number of tasks in flight to the worker
+          auto &lease_entry = worker_to_lease_entry_[addr];
+          RAY_CHECK(lease_entry.tasks_in_flight > 0);
+          lease_entry.tasks_in_flight--;
 
-      // Decrement the total number of tasks in flight to any worker with the current
-      // scheduling_key.
-      auto &scheduling_key_entry = scheduling_key_entries_[scheduling_key];
-      RAY_CHECK(scheduling_key_entry.active_workers.size() >= 1);
-      RAY_CHECK(scheduling_key_entry.total_tasks_in_flight >= 1);
-      scheduling_key_entry.total_tasks_in_flight--;
-    }
-    if (reply.worker_exiting()) {
-      // The worker is draining and will shutdown after it is done. Don't return
-      // it to the Raylet since that will kill it early.
-      absl::MutexLock lock(&mu_);
-      worker_to_lease_entry_.erase(addr);
-      auto &scheduling_key_entry = scheduling_key_entries_[scheduling_key];
-      scheduling_key_entry.active_workers.erase(addr);
-      if (scheduling_key_entry.CanDelete()) {
-        // We can safely remove the entry keyed by scheduling_key from the
-        // scheduling_key_entries_ hashmap.
-        scheduling_key_entries_.erase(scheduling_key);
-      }
-    } else if (!status.ok() || !is_actor_creation) {
-      // Successful actor creation leases the worker indefinitely from the raylet.
-      absl::MutexLock lock(&mu_);
-      OnWorkerIdle(addr, scheduling_key,
-                   /*error=*/!status.ok(), assigned_resources);
-    }
-    if (!status.ok()) {
-      // TODO: It'd be nice to differentiate here between process vs node
-      // failure (e.g., by contacting the raylet). If it was a process
-      // failure, it may have been an application-level error and it may
-      // not make sense to retry the task.
-      RAY_UNUSED(task_finisher_->PendingTaskFailed(
-          task_id, is_actor ? rpc::ErrorType::ACTOR_DIED : rpc::ErrorType::WORKER_DIED,
-          &status));
-    } else {
-      task_finisher_->CompletePendingTask(task_id, reply, addr.ToProto());
-    }
-  });
+          // Decrement the total number of tasks in flight to any worker with the current
+          // scheduling_key.
+          auto &scheduling_key_entry = scheduling_key_entries_[scheduling_key];
+          RAY_CHECK(scheduling_key_entry.active_workers.size() >= 1);
+          RAY_CHECK(scheduling_key_entry.total_tasks_in_flight >= 1);
+          scheduling_key_entry.total_tasks_in_flight--;
+
+          if (reply.task_stolen()) {
+            RAY_CHECK(work_stealing_);
+            // add the task back to the queue
+            scheduling_key_entry.task_queue.push_back(task_spec);
+            // Obtain thief address
+            rpc::WorkerAddress thief_addr = rpc::WorkerAddress(reply.thief_addr());
+
+            auto &thief_entry = worker_to_lease_entry_[thief_addr];
+            RAY_CHECK(!thief_entry.PipelineToWorkerFull(max_tasks_in_flight_per_worker_));
+            // call OnWorkerIdle to ship the task to the thief
+            OnWorkerIdle(thief_addr, scheduling_key, /*error=*/false,
+                         thief_entry.assigned_resources);
+          }
+
+          if (reply.worker_exiting()) {
+            // The worker is draining and will shutdown after it is done. Don't return
+            // it to the Raylet since that will kill it early.
+            worker_to_lease_entry_.erase(addr);
+            auto &scheduling_key_entry = scheduling_key_entries_[scheduling_key];
+            scheduling_key_entry.active_workers.erase(addr);
+            if (scheduling_key_entry.CanDelete()) {
+              // We can safely remove the entry keyed by scheduling_key from the
+              // scheduling_key_entries_ hashmap.
+              scheduling_key_entries_.erase(scheduling_key);
+            }
+          } else if (!status.ok() || !is_actor_creation) {
+            // Successful actor creation leases the worker indefinitely from the raylet.
+            OnWorkerIdle(addr, scheduling_key,
+                         /*error=*/!status.ok(), assigned_resources);
+          }
+        }
+        if (!status.ok()) {
+          // TODO: It'd be nice to differentiate here between process vs node
+          // failure (e.g., by contacting the raylet). If it was a process
+          // failure, it may have been an application-level error and it may
+          // not make sense to retry the task.
+          RAY_UNUSED(task_finisher_->PendingTaskFailed(
+              task_id,
+              is_actor ? rpc::ErrorType::ACTOR_DIED : rpc::ErrorType::WORKER_DIED,
+              &status));
+        } else {
+          task_finisher_->CompletePendingTask(task_id, reply, addr.ToProto());
+        }
+      });
 }
 
 Status CoreWorkerDirectTaskSubmitter::CancelTask(TaskSpecification task_spec,
