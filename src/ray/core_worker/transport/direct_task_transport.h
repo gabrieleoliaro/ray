@@ -270,7 +270,7 @@ class CoreWorkerDirectTaskSubmitter {
     // then only up to half of the tasks in flight will be stealable (because workers
     // earmark half of the tasks in their queues for thieves)
     uint32_t EstimateTasksAvailableForSteal() const {
-      return tasks_in_flight / pow(2, steal_tasks_request_pending);
+      return tasks_in_flight / pow(2, steal_tasks_request_pending + 1);
     }
 
     void SetNewStealTaskRequestPending() { steal_tasks_request_pending += 1; }

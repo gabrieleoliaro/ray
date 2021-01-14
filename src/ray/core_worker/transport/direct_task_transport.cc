@@ -232,9 +232,8 @@ bool CoreWorkerDirectTaskSubmitter::FindOptimalVictimForStealing(
             victim_entry.EstimateTasksAvailableForSteal());
   RAY_CHECK(scheduling_key_entry.total_tasks_in_flight >= victim_entry.tasks_in_flight);
 
-  if (victim_entry.EstimateTasksAvailableForSteal() <= 1) {
-    RAY_LOG(DEBUG)
-        << "The designated victim had <= 1 tasks in flight, so we can't steal.";
+  if (victim_entry.EstimateTasksAvailableForSteal() < 1) {
+    RAY_LOG(DEBUG) << "The designated victim does not have enough tasks to steal.";
     return false;
   }
 
@@ -291,18 +290,21 @@ void CoreWorkerDirectTaskSubmitter::StealTasksIfNeeded(
                            was_error](Status status, const rpc::StealTasksReply &reply) {
         absl::MutexLock lock(&mu_);
 
-        // Obtain the thief's lease entry (after ensuring that it still exists)
-        RAY_CHECK(worker_to_lease_entry_.find(thief_addr) !=
-                  worker_to_lease_entry_.end());
-        auto &thief_entry = worker_to_lease_entry_[thief_addr];
-        // Obtain the thief's lease entry (after ensuring that it still exists)
-        RAY_CHECK(worker_to_lease_entry_.find(victim_addr) !=
-                  worker_to_lease_entry_.end());
+        // Obtain the victim's lease entry (after ensuring that it still exists)
+        if (worker_to_lease_entry_.find(victim_addr) == worker_to_lease_entry_.end()) {
+          return;
+        }
         auto &victim_entry = worker_to_lease_entry_[victim_addr];
 
         // Mark the pending StealTask request as completed (for the purpose of estimating
         // how many more tasks are available to thieves)
         victim_entry.SetStealTaskRequestPendingCompleted();
+
+        // Obtain the thief's lease entry (after ensuring that it still exists)
+        if (worker_to_lease_entry_.find(thief_addr) == worker_to_lease_entry_.end()) {
+          return;
+        }
+        auto &thief_entry = worker_to_lease_entry_[thief_addr];
 
         RAY_LOG(DEBUG) << "After stealing, thief has " << thief_entry.tasks_in_flight
                        << " tasks_in_flight and an estimated "
@@ -552,7 +554,7 @@ void CoreWorkerDirectTaskSubmitter::RequestNewWorkerIfNeeded(
   lease_client->RequestWorkerLease(
       resource_spec,
       [this, resource_spec, scheduling_key](const Status &status,
-                             const rpc::RequestWorkerLeaseReply &reply) {
+                                            const rpc::RequestWorkerLeaseReply &reply) {
         absl::MutexLock lock(&mu_);
 
         auto &scheduling_key_entry = scheduling_key_entries_[scheduling_key];
