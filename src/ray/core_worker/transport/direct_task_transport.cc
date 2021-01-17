@@ -668,6 +668,8 @@ void CoreWorkerDirectTaskSubmitter::PushNormalTask(
             // Obtain thief address
             rpc::WorkerAddress thief_addr = rpc::WorkerAddress(reply.thief_addr());
 
+            // TODO(gabrieleoliaro): think about whether it is necessary to handle the case where the thief entry has been deleted
+
             auto &thief_entry = worker_to_lease_entry_[thief_addr];
             RAY_CHECK(!thief_entry.PipelineToWorkerFull(max_tasks_in_flight_per_worker_));
             // call OnWorkerIdle to ship the task to the thief
