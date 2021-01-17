@@ -668,13 +668,19 @@ void CoreWorkerDirectTaskSubmitter::PushNormalTask(
             // Obtain thief address
             rpc::WorkerAddress thief_addr = rpc::WorkerAddress(reply.thief_addr());
 
-            // TODO(gabrieleoliaro): think about whether it is necessary to handle the case where the thief entry has been deleted
+            
+            if (worker_to_lease_entry_.find(thief_addr) == worker_to_lease_entry_.end()) {
+              // Send task back to the victim
+              OnWorkerIdle(addr, scheduling_key, false, assigned_resources);
+            } else {
+              auto &thief_entry = worker_to_lease_entry_[thief_addr];
+              RAY_CHECK(!thief_entry.PipelineToWorkerFull(max_tasks_in_flight_per_worker_));
+              // call OnWorkerIdle to ship the task to the thief
+              OnWorkerIdle(thief_addr, scheduling_key, /*error=*/false,
+                           thief_entry.assigned_resources);
+            }
 
-            auto &thief_entry = worker_to_lease_entry_[thief_addr];
-            RAY_CHECK(!thief_entry.PipelineToWorkerFull(max_tasks_in_flight_per_worker_));
-            // call OnWorkerIdle to ship the task to the thief
-            OnWorkerIdle(thief_addr, scheduling_key, /*error=*/false,
-                         thief_entry.assigned_resources);
+            
           }
 
           if (reply.worker_exiting()) {
