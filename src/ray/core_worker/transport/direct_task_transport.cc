@@ -686,10 +686,14 @@ void CoreWorkerDirectTaskSubmitter::PushNormalTask(
               // scheduling_key_entries_ hashmap.
               scheduling_key_entries_.erase(scheduling_key);
             }
-          } else if (!status.ok() || !is_actor_creation) {
+          } else if (!reply.task_stolen() && (!status.ok() || !is_actor_creation)) {
             // Successful actor creation leases the worker indefinitely from the raylet.
             OnWorkerIdle(addr, scheduling_key,
                          /*error=*/!status.ok(), assigned_resources);
+          }
+
+          if (reply.task_stolen()) {
+            return;
           }
         }
         if (!status.ok()) {
