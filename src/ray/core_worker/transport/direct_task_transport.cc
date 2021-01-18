@@ -196,10 +196,10 @@ bool CoreWorkerDirectTaskSubmitter::FindOptimalVictimForStealing(
     auto &victim_entry = worker_to_lease_entry_[victim_addr];
     auto &candidate_entry = worker_to_lease_entry_[candidate_addr];
 
-    RAY_LOG(DEBUG) << "Incumbent victim: " << victim_addr.worker_id << " with "
-                   << victim_entry.tasks_in_flight << " tasks in flight";
-    RAY_LOG(DEBUG) << "Potential alternative candidate: " << candidate_addr.worker_id
-                   << " with " << candidate_entry.tasks_in_flight << " tasks in flight";
+    // RAY_LOG(DEBUG) << "Incumbent victim: " << victim_addr.worker_id << " with "
+    //                << victim_entry.tasks_in_flight << " tasks in flight";
+    // RAY_LOG(DEBUG) << "Potential alternative candidate: " << candidate_addr.worker_id
+    //                << " with " << candidate_entry.tasks_in_flight << " tasks in flight";
 
     // Update the designated victim if the alternative candidate is a better choice than
     // the incumbent victim
@@ -671,7 +671,7 @@ void CoreWorkerDirectTaskSubmitter::PushNormalTask(
             scheduling_key_entry.task_queue.push_back(task_spec);
             // Obtain thief address
             rpc::WorkerAddress thief_addr = rpc::WorkerAddress(reply.thief_addr());
-
+            RAY_LOG(DEBUG) << "Checking entry for thief " << thief_addr.worker_id << " still exists";
             RAY_CHECK(worker_to_lease_entry_.find(thief_addr) != worker_to_lease_entry_.end());
             
             auto &thief_entry = worker_to_lease_entry_[thief_addr];
@@ -683,6 +683,7 @@ void CoreWorkerDirectTaskSubmitter::PushNormalTask(
           }
 
           if (reply.worker_exiting()) {
+            RAY_LOG(DEBUG) << "Worker " << addr.worker_id << " replied that it is exiting.";
             // The worker is draining and will shutdown after it is done. Don't return
             // it to the Raylet since that will kill it early.
             worker_to_lease_entry_.erase(addr);
