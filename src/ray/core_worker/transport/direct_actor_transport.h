@@ -255,8 +255,8 @@ class InboundRequest {
   InboundRequest(){};
   InboundRequest(std::function<void()> accept_callback,
                  std::function<void()> reject_callback,
-                 std::function<void(rpc::Address)> steal_callback, 
-                 TaskID task_id, bool has_dependencies)
+                 std::function<void(rpc::Address)> steal_callback, TaskID task_id,
+                 bool has_dependencies)
       : accept_callback_(accept_callback),
         reject_callback_(reject_callback),
         steal_callback_(steal_callback),
@@ -364,7 +364,8 @@ class SchedulingQueue {
   virtual void ScheduleRequests() = 0;
   virtual bool TaskQueueEmpty() const = 0;
   virtual size_t Size() const = 0;
-  virtual size_t Steal(size_t max_tasks, rpc::Address thief_addr, rpc::StealTasksReply *reply) = 0;
+  virtual size_t Steal(size_t max_tasks, rpc::Address thief_addr,
+                       rpc::StealTasksReply *reply) = 0;
   virtual bool CancelTaskIfFound(TaskID task_id) = 0;
   virtual ~SchedulingQueue(){};
 };
@@ -399,7 +400,8 @@ class ActorSchedulingQueue : public SchedulingQueue {
   /// Add a new actor task's callbacks to the worker queue.
   void Add(int64_t seq_no, int64_t client_processed_up_to,
            std::function<void()> accept_request, std::function<void()> reject_request,
-           std::function<void(rpc::Address)> steal_request = nullptr, TaskID task_id = TaskID::Nil(),
+           std::function<void(rpc::Address)> steal_request = nullptr,
+           TaskID task_id = TaskID::Nil(),
            const std::vector<rpc::ObjectReference> &dependencies = {}) {
     // A seq_no of -1 means no ordering constraint. Actor tasks must be executed in order.
     RAY_CHECK(seq_no != -1);
@@ -571,7 +573,8 @@ class NormalSchedulingQueue : public SchedulingQueue {
   /// Add a new task's callbacks to the worker queue.
   void Add(int64_t seq_no, int64_t client_processed_up_to,
            std::function<void()> accept_request, std::function<void()> reject_request,
-           std::function<void(rpc::Address)> steal_request = nullptr, TaskID task_id = TaskID::Nil(),
+           std::function<void(rpc::Address)> steal_request = nullptr,
+           TaskID task_id = TaskID::Nil(),
            const std::vector<rpc::ObjectReference> &dependencies = {}) {
     absl::MutexLock lock(&mu_);
     // Normal tasks should not have ordering constraints.

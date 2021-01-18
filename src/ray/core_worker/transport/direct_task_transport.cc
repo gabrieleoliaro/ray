@@ -122,8 +122,8 @@ void CoreWorkerDirectTaskSubmitter::AddWorkerLeaseClient(
     const SchedulingKey &scheduling_key) {
   client_cache_->GetOrConnect(addr.ToProto());
   int64_t expiration = current_time_ms() + lease_timeout_ms_;
-  LeaseEntry new_lease_entry = LeaseEntry(std::move(lease_client), expiration, 0, false, 0,
-                                          assigned_resources, scheduling_key);
+  LeaseEntry new_lease_entry = LeaseEntry(std::move(lease_client), expiration, 0, false,
+                                          0, assigned_resources, scheduling_key);
   worker_to_lease_entry_.emplace(addr, new_lease_entry);
 
   auto &scheduling_key_entry = scheduling_key_entries_[scheduling_key];
@@ -199,7 +199,8 @@ bool CoreWorkerDirectTaskSubmitter::FindOptimalVictimForStealing(
     // RAY_LOG(DEBUG) << "Incumbent victim: " << victim_addr.worker_id << " with "
     //                << victim_entry.tasks_in_flight << " tasks in flight";
     // RAY_LOG(DEBUG) << "Potential alternative candidate: " << candidate_addr.worker_id
-    //                << " with " << candidate_entry.tasks_in_flight << " tasks in flight";
+    //                << " with " << candidate_entry.tasks_in_flight << " tasks in
+    //                flight";
 
     // Update the designated victim if the alternative candidate is a better choice than
     // the incumbent victim
@@ -671,9 +672,11 @@ void CoreWorkerDirectTaskSubmitter::PushNormalTask(
             scheduling_key_entry.task_queue.push_back(task_spec);
             // Obtain thief address
             rpc::WorkerAddress thief_addr = rpc::WorkerAddress(reply.thief_addr());
-            RAY_LOG(DEBUG) << "Checking entry for thief " << thief_addr.worker_id << " still exists";
-            RAY_CHECK(worker_to_lease_entry_.find(thief_addr) != worker_to_lease_entry_.end());
-            
+            RAY_LOG(DEBUG) << "Checking entry for thief " << thief_addr.worker_id
+                           << " still exists";
+            RAY_CHECK(worker_to_lease_entry_.find(thief_addr) !=
+                      worker_to_lease_entry_.end());
+
             auto &thief_entry = worker_to_lease_entry_[thief_addr];
             RAY_CHECK(thief_entry.currently_stealing);
             RAY_CHECK(!thief_entry.PipelineToWorkerFull(max_tasks_in_flight_per_worker_));
@@ -683,7 +686,8 @@ void CoreWorkerDirectTaskSubmitter::PushNormalTask(
           }
 
           if (reply.worker_exiting()) {
-            RAY_LOG(DEBUG) << "Worker " << addr.worker_id << " replied that it is exiting.";
+            RAY_LOG(DEBUG) << "Worker " << addr.worker_id
+                           << " replied that it is exiting.";
             // The worker is draining and will shutdown after it is done. Don't return
             // it to the Raylet since that will kill it early.
             worker_to_lease_entry_.erase(addr);
