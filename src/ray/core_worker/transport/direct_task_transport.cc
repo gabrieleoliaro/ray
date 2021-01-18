@@ -308,7 +308,7 @@ void CoreWorkerDirectTaskSubmitter::StealTasksIfNeeded(
           return;
         }
         auto &thief_entry = worker_to_lease_entry_[thief_addr];
-
+        RAY_LOG(INFO) << "Setting currently_stealing flag to false";
         thief_entry.currently_stealing = false;
 
         RAY_LOG(DEBUG) << "After stealing, thief has " << thief_entry.tasks_in_flight
@@ -323,7 +323,7 @@ void CoreWorkerDirectTaskSubmitter::StealTasksIfNeeded(
         // Compute number of tasks stolen
         ssize_t number_of_tasks_stolen = reply.number_of_tasks_stolen();
         RAY_CHECK(number_of_tasks_stolen == reply.tasks_stolen_size());
-        RAY_LOG(DEBUG) << "We stole " << number_of_tasks_stolen << " tasks "
+        RAY_LOG(INFO) << "We stole " << number_of_tasks_stolen << " tasks "
                        << "from worker: " << victim_wid;
 
         // If we didn't steal anything, we can return the worker to the Raylet
@@ -678,6 +678,8 @@ void CoreWorkerDirectTaskSubmitter::PushNormalTask(
                       worker_to_lease_entry_.end());
 
             auto &thief_entry = worker_to_lease_entry_[thief_addr];
+            RAY_LOG(DEBUG) << "Checking that thief_entry.currently_stealing flag for worker " << thief_addr.worker_id
+                           << " is still true ";
             RAY_CHECK(thief_entry.currently_stealing);
             RAY_CHECK(!thief_entry.PipelineToWorkerFull(max_tasks_in_flight_per_worker_));
             // call OnWorkerIdle to ship the task to the thief
