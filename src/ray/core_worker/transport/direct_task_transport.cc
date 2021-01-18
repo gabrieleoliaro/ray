@@ -678,7 +678,7 @@ void CoreWorkerDirectTaskSubmitter::PushNormalTask(
                       worker_to_lease_entry_.end());
 
             auto &thief_entry = worker_to_lease_entry_[thief_addr];
-            RAY_LOG(DEBUG) << "Checking that thief_entry.currently_stealing flag for worker " << thief_addr.worker_id
+            RAY_LOG(INFO) << "Checking that thief_entry.currently_stealing flag for worker " << thief_addr.worker_id
                            << " is still true ";
             RAY_CHECK(thief_entry.currently_stealing);
             RAY_CHECK(!thief_entry.PipelineToWorkerFull(max_tasks_in_flight_per_worker_));
