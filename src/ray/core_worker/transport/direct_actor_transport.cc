@@ -466,12 +466,13 @@ void CoreWorkerDirectTaskReceiver::HandleTask(
     send_reply_callback(Status::Invalid("client cancelled stale rpc"), nullptr, nullptr);
   };
 
-  auto steal_callback = [this, task_spec, reply, send_reply_callback]() {
+  auto steal_callback = [this, task_spec, reply, send_reply_callback](rpc::Address thief_addr) {
     RAY_LOG(DEBUG) << "Task " << task_spec.TaskId() << " was stolen from "
                    << worker_context_.GetWorkerID()
                    << "'s non_actor_task_queue_! Setting reply->set_task_stolen(true)!";
     // task stolen. respond accordingly
     reply->set_task_stolen(true);
+    reply->mutable_thief_addr()->CopyFrom(thief_addr); //.ToProto
     send_reply_callback(Status::OK(), nullptr, nullptr);
   };
 
@@ -529,7 +530,8 @@ void CoreWorkerDirectTaskReceiver::HandleStealTasks(
     return;
   }
 
-  size_t n_tasks_stolen = normal_scheduling_queue_->Steal(half, reply);
+  rpc::Address thief_addr = request.thief_addr();
+  size_t n_tasks_stolen = normal_scheduling_queue_->Steal(half, thief_addr, reply);
 
   RAY_LOG(DEBUG) << "Setting the total number of tasks stolen to " << n_tasks_stolen;
   reply->set_number_of_tasks_stolen(n_tasks_stolen);
