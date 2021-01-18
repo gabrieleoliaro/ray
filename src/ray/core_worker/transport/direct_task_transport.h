@@ -241,6 +241,7 @@ class CoreWorkerDirectTaskSubmitter {
     std::shared_ptr<WorkerLeaseInterface> lease_client;
     int64_t lease_expiration_time;
     uint32_t tasks_in_flight;
+    bool currently_stealing;
     uint32_t steal_tasks_request_pending;
     google::protobuf::RepeatedPtrField<rpc::ResourceMapEntry> assigned_resources;
     SchedulingKey scheduling_key;
@@ -248,6 +249,7 @@ class CoreWorkerDirectTaskSubmitter {
     LeaseEntry(
         std::shared_ptr<WorkerLeaseInterface> lease_client = nullptr,
         int64_t lease_expiration_time = 0, uint32_t tasks_in_flight = 0,
+        bool currently_stealing = false,
         uint32_t steal_tasks_request_pending = 0,
         google::protobuf::RepeatedPtrField<rpc::ResourceMapEntry> assigned_resources =
             google::protobuf::RepeatedPtrField<rpc::ResourceMapEntry>(),
@@ -256,6 +258,7 @@ class CoreWorkerDirectTaskSubmitter {
         : lease_client(lease_client),
           lease_expiration_time(lease_expiration_time),
           tasks_in_flight(tasks_in_flight),
+          currently_stealing(currently_stealing),
           steal_tasks_request_pending(steal_tasks_request_pending),
           assigned_resources(assigned_resources),
           scheduling_key(scheduling_key) {}

@@ -122,7 +122,7 @@ void CoreWorkerDirectTaskSubmitter::AddWorkerLeaseClient(
     const SchedulingKey &scheduling_key) {
   client_cache_->GetOrConnect(addr.ToProto());
   int64_t expiration = current_time_ms() + lease_timeout_ms_;
-  LeaseEntry new_lease_entry = LeaseEntry(std::move(lease_client), expiration, 0, 0,
+  LeaseEntry new_lease_entry = LeaseEntry(std::move(lease_client), expiration, 0, false, 0,
                                           assigned_resources, scheduling_key);
   worker_to_lease_entry_.emplace(addr, new_lease_entry);
 
@@ -277,6 +277,8 @@ void CoreWorkerDirectTaskSubmitter::StealTasksIfNeeded(
   auto &victim_entry = worker_to_lease_entry_[victim_addr];
   victim_entry.SetNewStealTaskRequestPending();
 
+  thief_entry.currently_stealing = true;
+
   // By this point, we have ascertained that the victim is available for stealing, so we
   // can go ahead with the RPC
   RAY_LOG(DEBUG) << "Calling Steal Work RPC!";
@@ -305,6 +307,8 @@ void CoreWorkerDirectTaskSubmitter::StealTasksIfNeeded(
           return;
         }
         auto &thief_entry = worker_to_lease_entry_[thief_addr];
+
+        thief_entry.currently_stealing = false;
 
         RAY_LOG(DEBUG) << "After stealing, thief has " << thief_entry.tasks_in_flight
                        << " tasks_in_flight and an estimated "
@@ -361,7 +365,7 @@ void CoreWorkerDirectTaskSubmitter::OnWorkerIdle(
     RAY_CHECK(scheduling_key_entry.active_workers.size() >= 1);
 
     // Return the worker only if there are no tasks in flight
-    if (lease_entry.tasks_in_flight == 0) {
+    if (lease_entry.tasks_in_flight == 0 && !lease_entry.currently_stealing) {
       RAY_LOG(DEBUG) << "Number of tasks in flight == 0, calling StealTasksIfNeeded!";
       StealTasksIfNeeded(addr, was_error, scheduling_key, assigned_resources);
     }
@@ -668,19 +672,14 @@ void CoreWorkerDirectTaskSubmitter::PushNormalTask(
             // Obtain thief address
             rpc::WorkerAddress thief_addr = rpc::WorkerAddress(reply.thief_addr());
 
+            RAY_CHECK(worker_to_lease_entry_.find(thief_addr) != worker_to_lease_entry_.end());
             
-            if (worker_to_lease_entry_.find(thief_addr) == worker_to_lease_entry_.end()) {
-              // Send task back to the victim
-              OnWorkerIdle(addr, scheduling_key, false, assigned_resources);
-            } else {
-              auto &thief_entry = worker_to_lease_entry_[thief_addr];
-              RAY_CHECK(!thief_entry.PipelineToWorkerFull(max_tasks_in_flight_per_worker_));
-              // call OnWorkerIdle to ship the task to the thief
-              OnWorkerIdle(thief_addr, scheduling_key, /*error=*/false,
-                           thief_entry.assigned_resources);
-            }
-
-            
+            auto &thief_entry = worker_to_lease_entry_[thief_addr];
+            RAY_CHECK(thief_entry.currently_stealing);
+            RAY_CHECK(!thief_entry.PipelineToWorkerFull(max_tasks_in_flight_per_worker_));
+            // call OnWorkerIdle to ship the task to the thief
+            OnWorkerIdle(thief_addr, scheduling_key, /*error=*/false,
+                         thief_entry.assigned_resources);
           }
 
           if (reply.worker_exiting()) {
