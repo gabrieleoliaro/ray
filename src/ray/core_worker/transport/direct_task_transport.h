@@ -242,6 +242,7 @@ class CoreWorkerDirectTaskSubmitter {
     int64_t lease_expiration_time;
     uint32_t tasks_in_flight;
     bool currently_stealing;
+    int64_t stolen_tasks_to_wait_for;
     uint32_t steal_tasks_request_pending;
     google::protobuf::RepeatedPtrField<rpc::ResourceMapEntry> assigned_resources;
     SchedulingKey scheduling_key;
@@ -249,7 +250,8 @@ class CoreWorkerDirectTaskSubmitter {
     LeaseEntry(
         std::shared_ptr<WorkerLeaseInterface> lease_client = nullptr,
         int64_t lease_expiration_time = 0, uint32_t tasks_in_flight = 0,
-        bool currently_stealing = false, uint32_t steal_tasks_request_pending = 0,
+        bool currently_stealing = false, int64_t stolen_tasks_to_wait_for = 0,
+        uint32_t steal_tasks_request_pending = 0,
         google::protobuf::RepeatedPtrField<rpc::ResourceMapEntry> assigned_resources =
             google::protobuf::RepeatedPtrField<rpc::ResourceMapEntry>(),
         SchedulingKey scheduling_key = std::make_tuple(0, std::vector<ObjectID>(),
@@ -258,6 +260,7 @@ class CoreWorkerDirectTaskSubmitter {
           lease_expiration_time(lease_expiration_time),
           tasks_in_flight(tasks_in_flight),
           currently_stealing(currently_stealing),
+          stolen_tasks_to_wait_for(stolen_tasks_to_wait_for),
           steal_tasks_request_pending(steal_tasks_request_pending),
           assigned_resources(assigned_resources),
           scheduling_key(scheduling_key) {}
@@ -265,6 +268,43 @@ class CoreWorkerDirectTaskSubmitter {
     // Check whether the pipeline to the worker associated with a LeaseEntry is full.
     bool PipelineToWorkerFull(uint32_t max_tasks_in_flight_per_worker) const {
       return tasks_in_flight == max_tasks_in_flight_per_worker;
+    }
+
+    // Check whether the worker is a thief who is in the process of stealing tasks
+    bool WorkerIsStealing() const {
+      if (!currently_stealing) {
+        RAY_CHECK(stolen_tasks_to_wait_for == 0);
+      }
+      return currently_stealing;
+    }
+
+    void SetWorkerIsStealing() {
+      RAY_CHECK(!currently_stealing);
+      RAY_CHECK(stolen_tasks_to_wait_for == 0);
+      currently_stealing = true;
+    }
+
+    void SetWorkerDoneStealing() {
+      RAY_CHECK(currently_stealing);
+      RAY_CHECK(stolen_tasks_to_wait_for == 0);
+      currently_stealing = false;
+    }
+
+
+    void SetReceivedOneStolenTask() {
+      RAY_CHECK(currently_stealing);
+      stolen_tasks_to_wait_for -= 1;
+      if (stolen_tasks_to_wait_for == 0) {
+        SetWorkerDoneStealing();
+      }
+    }
+
+    void IncrementTasksToWaitFor(uint32_t ntasks) {
+      RAY_CHECK(currently_stealing);
+      stolen_tasks_to_wait_for += ntasks;
+      if (stolen_tasks_to_wait_for == 0) {
+        SetWorkerDoneStealing();
+      }
     }
 
     // Compute the upper bound to the total number of tasks that can be stolen from the
@@ -275,8 +315,11 @@ class CoreWorkerDirectTaskSubmitter {
       return tasks_in_flight / pow(2, steal_tasks_request_pending + 1);
     }
 
+    // Increment the counter that keeps track of how many StealTasks requests are pending at one victim. 
+    // Knowing how many requests are pending allows us to estimate how many tasks are available to steal
     void SetNewStealTaskRequestPending() { steal_tasks_request_pending += 1; }
 
+    // Decrement the counter that keeps track of how many StealTasks requests are pending at one victim.
     void SetStealTaskRequestPendingCompleted() {
       RAY_CHECK(steal_tasks_request_pending > 0);
       steal_tasks_request_pending -= 1;

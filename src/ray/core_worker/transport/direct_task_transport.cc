@@ -122,7 +122,7 @@ void CoreWorkerDirectTaskSubmitter::AddWorkerLeaseClient(
     const SchedulingKey &scheduling_key) {
   client_cache_->GetOrConnect(addr.ToProto());
   int64_t expiration = current_time_ms() + lease_timeout_ms_;
-  LeaseEntry new_lease_entry = LeaseEntry(std::move(lease_client), expiration, 0, false,
+  LeaseEntry new_lease_entry = LeaseEntry(std::move(lease_client), expiration, 0, false, 0,
                                           0, assigned_resources, scheduling_key);
   worker_to_lease_entry_.emplace(addr, new_lease_entry);
 
@@ -278,7 +278,7 @@ void CoreWorkerDirectTaskSubmitter::StealTasksIfNeeded(
   auto &victim_entry = worker_to_lease_entry_[victim_addr];
   victim_entry.SetNewStealTaskRequestPending();
 
-  thief_entry.currently_stealing = true;
+  thief_entry.SetWorkerIsStealing();
 
   // By this point, we have ascertained that the victim is available for stealing, so we
   // can go ahead with the RPC
@@ -308,23 +308,17 @@ void CoreWorkerDirectTaskSubmitter::StealTasksIfNeeded(
           return;
         }
         auto &thief_entry = worker_to_lease_entry_[thief_addr];
-        RAY_LOG(INFO) << "Setting currently_stealing flag to false";
-        thief_entry.currently_stealing = false;
-
-        RAY_LOG(DEBUG) << "After stealing, thief has " << thief_entry.tasks_in_flight
-                       << " tasks_in_flight and an estimated "
-                       << thief_entry.EstimateTasksAvailableForSteal()
-                       << " tasks available to steal";
-        RAY_LOG(DEBUG) << "After stealing, victim has " << victim_entry.tasks_in_flight
-                       << " tasks_in_flight and an estimated "
-                       << victim_entry.EstimateTasksAvailableForSteal()
-                       << " tasks available to steal";
+        
+        RAY_CHECK(thief_entry.WorkerIsStealing());
 
         // Compute number of tasks stolen
         ssize_t number_of_tasks_stolen = reply.number_of_tasks_stolen();
         RAY_CHECK(number_of_tasks_stolen == reply.tasks_stolen_size());
         RAY_LOG(INFO) << "We stole " << number_of_tasks_stolen << " tasks "
                        << "from worker: " << victim_wid;
+
+        RAY_LOG(INFO) << "Incrementing thief " << thief_addr.worker_id << "'s stolen_tasks_to_wait_for by " << number_of_tasks_stolen;
+        thief_entry.IncrementTasksToWaitFor(number_of_tasks_stolen);
 
         // If we didn't steal anything, we can return the worker to the Raylet
         if (number_of_tasks_stolen == 0) {
@@ -366,7 +360,7 @@ void CoreWorkerDirectTaskSubmitter::OnWorkerIdle(
     RAY_CHECK(scheduling_key_entry.active_workers.size() >= 1);
 
     // Return the worker only if there are no tasks in flight
-    if (lease_entry.tasks_in_flight == 0 && !lease_entry.currently_stealing) {
+    if (lease_entry.tasks_in_flight == 0 && !lease_entry.WorkerIsStealing()) {
       RAY_LOG(DEBUG) << "Number of tasks in flight == 0, calling StealTasksIfNeeded!";
       StealTasksIfNeeded(addr, was_error, scheduling_key, assigned_resources);
     }
@@ -670,17 +664,20 @@ void CoreWorkerDirectTaskSubmitter::PushNormalTask(
             RAY_CHECK(work_stealing_);
             // add the task back to the queue
             scheduling_key_entry.task_queue.push_back(task_spec);
+            
             // Obtain thief address
             rpc::WorkerAddress thief_addr = rpc::WorkerAddress(reply.thief_addr());
             RAY_LOG(DEBUG) << "Checking entry for thief " << thief_addr.worker_id
                            << " still exists";
             RAY_CHECK(worker_to_lease_entry_.find(thief_addr) !=
                       worker_to_lease_entry_.end());
-
             auto &thief_entry = worker_to_lease_entry_[thief_addr];
+
             RAY_LOG(INFO) << "Checking that thief_entry.currently_stealing flag for worker " << thief_addr.worker_id
                            << " is still true ";
             RAY_CHECK(thief_entry.currently_stealing);
+            thief_entry.SetReceivedOneStolenTask();
+
             RAY_CHECK(!thief_entry.PipelineToWorkerFull(max_tasks_in_flight_per_worker_));
             // call OnWorkerIdle to ship the task to the thief
             OnWorkerIdle(thief_addr, scheduling_key, /*error=*/false,
