@@ -300,7 +300,6 @@ void CoreWorkerDirectTaskSubmitter::StealTasksIfNeeded(
 
         // Compute number of tasks stolen
         ssize_t number_of_tasks_stolen = reply.number_of_tasks_stolen();
-        RAY_CHECK(number_of_tasks_stolen == reply.tasks_stolen_size());
         RAY_LOG(DEBUG) << "We stole " << number_of_tasks_stolen << " tasks "
                        << "from worker: " << victim_wid;
 
