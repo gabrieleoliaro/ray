@@ -266,7 +266,6 @@ class InboundRequest {
   void Accept() { accept_callback_(); }
   void Cancel() { reject_callback_(); }
   void Steal(rpc::Address thief_addr, rpc::StealTasksReply *reply) {
-    reply->add_tasks_stolen(task_id.Hex());
     steal_callback_(thief_addr);
   }
   bool CanExecute() const { return !has_pending_dependencies_; }

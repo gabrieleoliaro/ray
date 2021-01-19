@@ -270,7 +270,10 @@ class CoreWorkerDirectTaskSubmitter {
       return tasks_in_flight == max_tasks_in_flight_per_worker;
     }
 
-    // Check whether the worker is a thief who is in the process of stealing tasks
+    // Check whether the worker is a thief who is in the process of stealing tasks.
+    // Knowing whether a thief is currently stealing is important to prevent the thief
+    // from initiating another StealTasks request or from being returned to the raylet
+    // until stealing has completed.
     bool WorkerIsStealing() const {
       if (!currently_stealing) {
         RAY_CHECK(stolen_tasks_to_wait_for == 0);
@@ -278,18 +281,33 @@ class CoreWorkerDirectTaskSubmitter {
       return currently_stealing;
     }
 
+    // Once stealing has begun, updated the thief's currently_stealing flag to reflect the
+    // new state.
     void SetWorkerIsStealing() {
       RAY_CHECK(!currently_stealing);
       RAY_CHECK(stolen_tasks_to_wait_for == 0);
       currently_stealing = true;
     }
 
+    // Once stealing has completed, updated the thief's currently_stealing flag to reflect
+    // the new state.
     void SetWorkerDoneStealing() {
       RAY_CHECK(currently_stealing);
       RAY_CHECK(stolen_tasks_to_wait_for == 0);
       currently_stealing = false;
     }
 
+    // The following two methods are used by a thief's StealTasks request callback and a
+    // victim's PushNormalTaskRequest callback to be able to set the thief's
+    // currently_stealing flag to false only once stealing has completed. Because there is
+    // no ordering guarantee between the reply to the StealTask request and the replies to
+    // the PushNormalTask requests associated with the stolen tasks, we can declare a
+    // stealing processing concluded only after two conditions are met: (1) The owner has
+    // received a StealTasks reply from the victim, with the number of tasks that were
+    // stolen (2) The owner has received a PushNormalTask reply for each one of the stolen
+    // tasks, and the stolen tasks have been forwarded to the thief (or some other worker
+    // if the thief's pipeline has gotten full).
+    
     void SetReceivedOneStolenTask() {
       RAY_CHECK(currently_stealing);
       stolen_tasks_to_wait_for -= 1;
@@ -307,9 +325,10 @@ class CoreWorkerDirectTaskSubmitter {
     }
 
     // Compute the upper bound to the total number of tasks that can be stolen from the
-    // worker associated with the LeaseEntry. If there is a pending StealTasks request,
-    // then only up to half of the tasks in flight will be stealable (because workers
-    // earmark half of the tasks in their queues for thieves)
+    // worker associated with the LeaseEntry. For example, if a worker has 10 tasks in
+    // flight, and 0 pending StealTasks requests, we can hope to steal up to 10/(2^0)=5
+    // tasks. This value is just the number of tasks in flight divided by 2, because
+    // workers earmark half of the tasks in their queues for thieves)
     uint32_t EstimateTasksAvailableForSteal() const {
       return tasks_in_flight / pow(2, steal_tasks_request_pending + 1);
     }
