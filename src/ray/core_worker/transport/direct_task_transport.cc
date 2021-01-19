@@ -139,7 +139,7 @@ void CoreWorkerDirectTaskSubmitter::ReturnWorker(const rpc::WorkerAddress addr,
   auto &lease_entry = worker_to_lease_entry_[addr];
   RAY_CHECK(lease_entry.lease_client);
   RAY_CHECK(lease_entry.tasks_in_flight == 0);
-  RAY_CHECK(thief_entry.WorkerIsStealing() == false);
+  RAY_CHECK(lease_entry.WorkerIsStealing() == false);
 
   // Decrement the number of active workers consuming tasks from the queue associated
   // with the current scheduling_key
