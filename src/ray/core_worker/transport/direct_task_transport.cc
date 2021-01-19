@@ -122,8 +122,8 @@ void CoreWorkerDirectTaskSubmitter::AddWorkerLeaseClient(
     const SchedulingKey &scheduling_key) {
   client_cache_->GetOrConnect(addr.ToProto());
   int64_t expiration = current_time_ms() + lease_timeout_ms_;
-  LeaseEntry new_lease_entry = LeaseEntry(std::move(lease_client), expiration, 0, false, 0,
-                                          0, assigned_resources, scheduling_key);
+  LeaseEntry new_lease_entry = LeaseEntry(std::move(lease_client), expiration, 0, false,
+                                          0, 0, assigned_resources, scheduling_key);
   worker_to_lease_entry_.emplace(addr, new_lease_entry);
 
   auto &scheduling_key_entry = scheduling_key_entries_[scheduling_key];
@@ -252,6 +252,7 @@ void CoreWorkerDirectTaskSubmitter::StealTasksIfNeeded(
     ReturnWorker(thief_addr, was_error, scheduling_key);
     return;
   }
+
   RAY_LOG(DEBUG) << "Beginning to steal work now! Thief is worker: "
                  << thief_addr.worker_id;
 
@@ -260,6 +261,7 @@ void CoreWorkerDirectTaskSubmitter::StealTasksIfNeeded(
   // (nor some stealable tasks)
   RAY_CHECK(thief_entry.lease_client);
   RAY_CHECK(thief_entry.tasks_in_flight == 0);
+  RAY_CHECK(thief_entry.WorkerIsStealing() == false);
   RAY_CHECK(thief_entry.EstimateTasksAvailableForSteal() == 0);
 
   // Search for a suitable victim
@@ -301,23 +303,27 @@ void CoreWorkerDirectTaskSubmitter::StealTasksIfNeeded(
 
         // Mark the pending StealTask request as completed (for the purpose of estimating
         // how many more tasks are available to thieves)
+
+        // TODO (gabrieleoliaro) - we might want to move this instruction to ensure that
+        // it is executed only once stealing has fully completed (all stolen tasks have
+        // been pushed to the thief)
         victim_entry.SetStealTaskRequestPendingCompleted();
 
         // Obtain the thief's lease entry (after ensuring that it still exists)
-        if (worker_to_lease_entry_.find(thief_addr) == worker_to_lease_entry_.end()) {
-          return;
-        }
+        RAY_CHECK(worker_to_lease_entry_.find(thief_addr) !=
+                  worker_to_lease_entry_.end());
+
         auto &thief_entry = worker_to_lease_entry_[thief_addr];
-        
         RAY_CHECK(thief_entry.WorkerIsStealing());
 
         // Compute number of tasks stolen
         ssize_t number_of_tasks_stolen = reply.number_of_tasks_stolen();
         RAY_CHECK(number_of_tasks_stolen == reply.tasks_stolen_size());
         RAY_LOG(INFO) << "We stole " << number_of_tasks_stolen << " tasks "
-                       << "from worker: " << victim_wid;
+                      << "from worker: " << victim_wid;
 
-        RAY_LOG(INFO) << "Incrementing thief " << thief_addr.worker_id << "'s stolen_tasks_to_wait_for by " << number_of_tasks_stolen;
+        RAY_LOG(INFO) << "Incrementing thief " << thief_addr.worker_id
+                      << "'s stolen_tasks_to_wait_for by " << number_of_tasks_stolen;
         thief_entry.IncrementTasksToWaitFor(number_of_tasks_stolen);
 
         // If we didn't steal anything, we can return the worker to the Raylet
@@ -664,7 +670,7 @@ void CoreWorkerDirectTaskSubmitter::PushNormalTask(
             RAY_CHECK(work_stealing_);
             // add the task back to the queue
             scheduling_key_entry.task_queue.push_back(task_spec);
-            
+
             // Obtain thief address
             rpc::WorkerAddress thief_addr = rpc::WorkerAddress(reply.thief_addr());
             RAY_LOG(DEBUG) << "Checking entry for thief " << thief_addr.worker_id
@@ -673,9 +679,8 @@ void CoreWorkerDirectTaskSubmitter::PushNormalTask(
                       worker_to_lease_entry_.end());
             auto &thief_entry = worker_to_lease_entry_[thief_addr];
 
-            RAY_LOG(INFO) << "Checking that thief_entry.currently_stealing flag for worker " << thief_addr.worker_id
-                           << " is still true ";
-            RAY_CHECK(thief_entry.currently_stealing);
+            RAY_LOG(INFO) << "Record that thief " << thief_addr.worker_id
+                          << " has received one of the stolen tasks";
             thief_entry.SetReceivedOneStolenTask();
 
             RAY_CHECK(!thief_entry.PipelineToWorkerFull(max_tasks_in_flight_per_worker_));

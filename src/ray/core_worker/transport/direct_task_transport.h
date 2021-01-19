@@ -290,7 +290,6 @@ class CoreWorkerDirectTaskSubmitter {
       currently_stealing = false;
     }
 
-
     void SetReceivedOneStolenTask() {
       RAY_CHECK(currently_stealing);
       stolen_tasks_to_wait_for -= 1;
@@ -315,11 +314,13 @@ class CoreWorkerDirectTaskSubmitter {
       return tasks_in_flight / pow(2, steal_tasks_request_pending + 1);
     }
 
-    // Increment the counter that keeps track of how many StealTasks requests are pending at one victim. 
-    // Knowing how many requests are pending allows us to estimate how many tasks are available to steal
+    // Increment the counter that keeps track of how many StealTasks requests are pending
+    // at one victim. Knowing how many requests are pending allows us to estimate how many
+    // tasks are available to steal
     void SetNewStealTaskRequestPending() { steal_tasks_request_pending += 1; }
 
-    // Decrement the counter that keeps track of how many StealTasks requests are pending at one victim.
+    // Decrement the counter that keeps track of how many StealTasks requests are pending
+    // at one victim.
     void SetStealTaskRequestPendingCompleted() {
       RAY_CHECK(steal_tasks_request_pending > 0);
       steal_tasks_request_pending -= 1;
