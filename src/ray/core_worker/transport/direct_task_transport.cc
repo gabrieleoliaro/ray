@@ -710,6 +710,7 @@ void CoreWorkerDirectTaskSubmitter::PushNormalTask(
                 }
               }
             }
+          }
 
           if (reply.worker_exiting()) {
             RAY_LOG(DEBUG) << "Worker " << addr.worker_id
