@@ -683,11 +683,33 @@ void CoreWorkerDirectTaskSubmitter::PushNormalTask(
                           << " has received one of the stolen tasks";
             thief_entry.SetReceivedOneStolenTask();
 
-            RAY_CHECK(!thief_entry.PipelineToWorkerFull(max_tasks_in_flight_per_worker_));
-            // call OnWorkerIdle to ship the task to the thief
-            OnWorkerIdle(thief_addr, scheduling_key, /*error=*/false,
-                         thief_entry.assigned_resources);
-          }
+            //RAY_CHECK(!thief_entry.PipelineToWorkerFull(max_tasks_in_flight_per_worker_));
+            
+
+            if (!thief_entry.PipelineToWorkerFull(max_tasks_in_flight_per_worker_)) {
+              // call OnWorkerIdle to ship the task to the thief
+              OnWorkerIdle(thief_addr, scheduling_key, /*error=*/false,
+                           thief_entry.assigned_resources);
+            } else {
+              // Find a worker with a number of tasks in flight that is less than the maximum
+              // value (max_tasks_in_flight_per_worker_) and call OnWorkerIdle to send tasks
+              // to that worker
+              for (auto active_worker_addr : scheduling_key_entry.active_workers) {
+                RAY_CHECK(worker_to_lease_entry_.find(active_worker_addr) !=
+                          worker_to_lease_entry_.end());
+                auto &recipient_entry = worker_to_lease_entry_[active_worker_addr];
+                if (!recipient_entry.PipelineToWorkerFull(max_tasks_in_flight_per_worker_)) {
+                  OnWorkerIdle(active_worker_addr, scheduling_key, false,
+                               recipient_entry.assigned_resources);
+                  // If we find a worker with a non-full pipeline, all we need to do is to
+                  // submit the new task to the worker in question by calling OnWorkerIdle
+                  // once. We don't need to worry about other tasks in the queue because the
+                  // queue cannot have other tasks in it if there are active workers with
+                  // non-full pipelines.
+                  break;
+                }
+              }
+            }
 
           if (reply.worker_exiting()) {
             RAY_LOG(DEBUG) << "Worker " << addr.worker_id
