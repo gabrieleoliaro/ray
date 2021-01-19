@@ -319,10 +319,10 @@ void CoreWorkerDirectTaskSubmitter::StealTasksIfNeeded(
         // Compute number of tasks stolen
         ssize_t number_of_tasks_stolen = reply.number_of_tasks_stolen();
         RAY_CHECK(number_of_tasks_stolen == reply.tasks_stolen_size());
-        RAY_LOG(INFO) << "We stole " << number_of_tasks_stolen << " tasks "
+        RAY_LOG(DEBUG) << "We stole " << number_of_tasks_stolen << " tasks "
                       << "from worker: " << victim_wid;
 
-        RAY_LOG(INFO) << "Incrementing thief " << thief_addr.worker_id
+        RAY_LOG(DEBUG) << "Incrementing thief " << thief_addr.worker_id
                       << "'s stolen_tasks_to_wait_for by " << number_of_tasks_stolen;
         thief_entry.IncrementTasksToWaitFor(number_of_tasks_stolen);
 
@@ -359,12 +359,16 @@ void CoreWorkerDirectTaskSubmitter::OnWorkerIdle(
   auto &scheduling_key_entry = scheduling_key_entries_[scheduling_key];
   auto &current_queue = scheduling_key_entry.task_queue;
   // Return the worker if there was an error executing the previous task,
-  // the previous task is an actor creation task,
-  // there are no more applicable queued tasks, or the lease is expired.
-  if (was_error || current_queue.empty() ||
-      current_time_ms() > lease_entry.lease_expiration_time) {
+  // the previous task is an actor creation task, or the lease is expired.
+  if (was_error || current_time_ms() > lease_entry.lease_expiration_time) {
+    RAY_LOG(DEBUG) << "There was an error or the lease has expired: returning the worker to the Raylet!";
     RAY_CHECK(scheduling_key_entry.active_workers.size() >= 1);
-
+    ReturnWorker(addr, was_error, scheduling_key);
+  }
+  // If there are no more applicable queued tasks, attempt stealing from existing workers,
+  // then return the worker
+  else if (current_queue.empty()) {
+    RAY_CHECK(scheduling_key_entry.active_workers.size() >= 1);
     // Return the worker only if there are no tasks in flight
     if (lease_entry.tasks_in_flight == 0 && !lease_entry.WorkerIsStealing()) {
       RAY_LOG(DEBUG) << "Number of tasks in flight == 0, calling StealTasksIfNeeded!";
@@ -393,7 +397,7 @@ void CoreWorkerDirectTaskSubmitter::OnWorkerIdle(
     // Delete the queue if it's now empty. Note that the queue cannot already be empty
     // because this is the only place tasks are removed from it.
     if (current_queue.empty()) {
-      RAY_LOG(INFO) << "Task queue empty, canceling lease request";
+      RAY_LOG(DEBUG) << "Task queue empty, canceling lease request";
       CancelWorkerLeaseIfNeeded(scheduling_key);
     }
   }
@@ -679,7 +683,7 @@ void CoreWorkerDirectTaskSubmitter::PushNormalTask(
                       worker_to_lease_entry_.end());
             auto &thief_entry = worker_to_lease_entry_[thief_addr];
 
-            RAY_LOG(INFO) << "Record that thief " << thief_addr.worker_id
+            RAY_LOG(DEBUG) << "Record that thief " << thief_addr.worker_id
                           << " has received one of the stolen tasks";
             thief_entry.SetReceivedOneStolenTask();
 
