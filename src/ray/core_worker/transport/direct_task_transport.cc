@@ -361,9 +361,11 @@ void CoreWorkerDirectTaskSubmitter::OnWorkerIdle(
   // Return the worker if there was an error executing the previous task,
   // the previous task is an actor creation task, or the lease is expired.
   if (was_error || current_time_ms() > lease_entry.lease_expiration_time) {
-    RAY_LOG(DEBUG) << "There was an error or the lease has expired: returning the worker to the Raylet!";
-    RAY_CHECK(scheduling_key_entry.active_workers.size() >= 1);
-    ReturnWorker(addr, was_error, scheduling_key);
+    if (lease_entry.tasks_in_flight == 0) {
+      RAY_LOG(DEBUG) << "There was an error or the lease has expired: returning the worker to the Raylet!";
+      RAY_CHECK(scheduling_key_entry.active_workers.size() >= 1);
+      ReturnWorker(addr, was_error, scheduling_key);
+    }
   }
   // If there are no more applicable queued tasks, attempt stealing from existing workers,
   // then return the worker
