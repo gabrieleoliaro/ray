@@ -1,4 +1,4 @@
-autogluon.core==0.0.16b20210113  # to pin autogluon.core
+autogluon.core==0.0.16b20210206  # to pin autogluon.core
 ax-platform==0.1.9; python_version < '3.7'
 ax-platform==0.1.20; python_version >= '3.7'
 bayesian-optimization==1.2.0
@@ -26,7 +26,7 @@ pytorch-lightning==1.0.3
 scikit-learn==0.22.2
 scikit-optimize==0.8.1
 sigopt==5.7.0
-smart_open==4.2.0
+smart_open==5.0.0
 tensorflow-probability==0.11.1
 timm==0.3.2
 
